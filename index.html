@@ -1,61 +1,58 @@
 <?php
-// Configurações
-$_UP['pasta'] = 'uploads/';
-$_UP['srvImg'] = 'https://exemplo.com/imagens/'; // <-- Altere para seu endpoint real
-$user = 'usuario'; // <-- Altere para seu usuário
-$pass = 'senha';   // <-- Altere para sua senha
+$github_user = 'SEU_USUARIO';
+$repo = 'SEU_REPOSITORIO';
+$token = 'ghp_SEU_TOKEN_GITHUB'; // token com permissão de escrita
+$branch = 'main'; // ou 'master'
+$upload_dir_in_repo = 'uploads'; // pasta dentro do seu repo
 
 function gerarErro($msg) {
 	echo "<div style='color:red;'>$msg</div>";
 }
 
-function get_http_response_code($url) {
-	$headers = get_headers($url);
-	return substr($headers[0], 9, 3);
+function enviarParaGithub($filePath, $fileName, $github_user, $repo, $token, $branch, $upload_dir) {
+	$api_url = "https://api.github.com/repos/$github_user/$repo/contents/$upload_dir/$fileName";
+
+	$content = base64_encode(file_get_contents($filePath));
+
+	$data = [
+		"message" => "Upload da imagem via PHP",
+		"branch" => $branch,
+		"content" => $content
+	];
+
+	$ch = curl_init($api_url);
+	curl_setopt($ch, CURLOPT_USERAGENT, 'PHP Upload Script');
+	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+	curl_setopt($ch, CURLOPT_HTTPHEADER, [
+		"Authorization: token $token",
+		"Content-Type: application/json"
+	]);
+	curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
+	curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+
+	$response = curl_exec($ch);
+	$httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+	curl_close($ch);
+
+	return [$httpcode, $response];
 }
 
-// Processa envio
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
 	$arquivo = $_FILES['arquivo'];
 	$nmarqimg = basename($arquivo['name']);
-	$moveImg = move_uploaded_file($arquivo['tmp_name'], $_UP['pasta'] . $nmarqimg);
+	$tmp_path = $arquivo['tmp_name'];
 
-	if ($moveImg) {
-		try {
-			$filePath = $_UP['pasta'] . $nmarqimg;
-			$url = $_UP['srvImg'] . $nmarqimg;
+	if (!preg_match('/^[a-zA-Z0-9._-]+$/', $nmarqimg)) {
+		gerarErro('Nome de arquivo inválido!');
+		exit;
+	}
 
-			// Validação básica
-			if (!preg_match('/^[a-zA-Z0-9._-]+$/', basename($filePath))) {
-				throw new Exception('Nome de arquivo inválido!');
-			}
+	list($code, $resp) = enviarParaGithub($tmp_path, $nmarqimg, $github_user, $repo, $token, $branch, $upload_dir_in_repo);
 
-			$ch = curl_init();
-			curl_setopt($ch, CURLOPT_URL, $url);
-			curl_setopt($ch, CURLOPT_USERPWD, "$user:$pass");
-			curl_setopt($ch, CURLOPT_UPLOAD, true);
-			curl_setopt($ch, CURLOPT_INFILE, fopen($filePath, 'r'));
-			curl_setopt($ch, CURLOPT_INFILESIZE, filesize($filePath));
-			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-			$response = curl_exec($ch);
-			if (curl_errno($ch)) {
-				throw new Exception('Erro no cURL: ' . curl_error($ch));
-			}
-			curl_close($ch);
-		} catch (Exception $e) {
-			gerarErro("Erro ao carregar arquivo: " . $e->getMessage());
-			exit;
-		}
-		// Valida resposta final
-		$get_http_response_code = get_http_response_code($url);
-		if ($get_http_response_code <> 200) {
-			gerarErro("Não foi possível enviar a imagem. Código HTTP: $get_http_response_code");
-			exit;
-		}
-		echo "<div style='color:green;'>Imagem enviada com sucesso para $url</div>";
+	if ($code === 201) {
+		echo "<div style='color:green;'>Imagem enviada com sucesso para o repositório!</div>";
 	} else {
-		gerarErro("Erro ao mover o arquivo para o diretório temporário.");
+		gerarErro("Erro ao enviar imagem para o GitHub! Código HTTP: $code<br>Resposta: $resp");
 	}
 }
 ?>
@@ -64,10 +61,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
 <html lang="pt-br">
 <head>
 	<meta charset="UTF-8">
-	<title>Upload de Imagem</title>
+	<title>Upload para GitHub</title>
 </head>
 <body>
-	<h2>Enviar imagem</h2>
+	<h2>Enviar imagem para GitHub</h2>
 	<form method="post" enctype="multipart/form-data">
 		<input type="file" name="arquivo" required>
 		<br><br>
