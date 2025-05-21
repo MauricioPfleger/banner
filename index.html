@@ -1,0 +1,77 @@
+<?php
+// Configurações
+$_UP['pasta'] = 'uploads/';
+$_UP['srvImg'] = 'https://exemplo.com/imagens/'; // <-- Altere para seu endpoint real
+$user = 'usuario'; // <-- Altere para seu usuário
+$pass = 'senha';   // <-- Altere para sua senha
+
+function gerarErro($msg) {
+	echo "<div style='color:red;'>$msg</div>";
+}
+
+function get_http_response_code($url) {
+	$headers = get_headers($url);
+	return substr($headers[0], 9, 3);
+}
+
+// Processa envio
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['arquivo'])) {
+	$arquivo = $_FILES['arquivo'];
+	$nmarqimg = basename($arquivo['name']);
+	$moveImg = move_uploaded_file($arquivo['tmp_name'], $_UP['pasta'] . $nmarqimg);
+
+	if ($moveImg) {
+		try {
+			$filePath = $_UP['pasta'] . $nmarqimg;
+			$url = $_UP['srvImg'] . $nmarqimg;
+
+			// Validação básica
+			if (!preg_match('/^[a-zA-Z0-9._-]+$/', basename($filePath))) {
+				throw new Exception('Nome de arquivo inválido!');
+			}
+
+			$ch = curl_init();
+			curl_setopt($ch, CURLOPT_URL, $url);
+			curl_setopt($ch, CURLOPT_USERPWD, "$user:$pass");
+			curl_setopt($ch, CURLOPT_UPLOAD, true);
+			curl_setopt($ch, CURLOPT_INFILE, fopen($filePath, 'r'));
+			curl_setopt($ch, CURLOPT_INFILESIZE, filesize($filePath));
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+			$response = curl_exec($ch);
+			if (curl_errno($ch)) {
+				throw new Exception('Erro no cURL: ' . curl_error($ch));
+			}
+			curl_close($ch);
+		} catch (Exception $e) {
+			gerarErro("Erro ao carregar arquivo: " . $e->getMessage());
+			exit;
+		}
+		// Valida resposta final
+		$get_http_response_code = get_http_response_code($url);
+		if ($get_http_response_code <> 200) {
+			gerarErro("Não foi possível enviar a imagem. Código HTTP: $get_http_response_code");
+			exit;
+		}
+		echo "<div style='color:green;'>Imagem enviada com sucesso para $url</div>";
+	} else {
+		gerarErro("Erro ao mover o arquivo para o diretório temporário.");
+	}
+}
+?>
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+	<meta charset="UTF-8">
+	<title>Upload de Imagem</title>
+</head>
+<body>
+	<h2>Enviar imagem</h2>
+	<form method="post" enctype="multipart/form-data">
+		<input type="file" name="arquivo" required>
+		<br><br>
+		<input type="submit" value="Enviar">
+	</form>
+</body>
+</html>
